@@ -1,0 +1,4 @@
+{"type": "RECORD", "record": { "stream": "users", "namespace": "johnny", "data": {"id": 1, "name": "picard"}}}
+{"type": "RECORD", "record": { "stream": "users", "namespace": "johnny", "data": {"id": 2, "name": "crusher"}}}
+{"type": "RECORD", "record": { "stream": "users", "namespace": "johnny", "data": {"id": 3, "name": "vash"}}}
+{"type": "TRACE", "trace":  { "type": "STREAM_STATUS", "stream_status":  { "stream_descriptor": { "name": "users", "namespace": "johnny" }, "status": "COMPLETE"}}}
