@@ -521,6 +521,9 @@ abstract class BaseSqlGeneratorIntegrationTest<DestinationState : MinimumDestina
      * Verifies two behaviors:
      * 1. The isFinalTableEmpty method behaves correctly during a sync
      * 2. Column names with mixed case are handled correctly
+     * 3. Stream names with mixed case are handled correctly (under the assumption that destinations
+     *    that support this will also handle mixed-case namespaces, because this test is annoying
+     *    to set up with a different namespace).
      *
      * The first behavior technically should be its own test, but we might as well just throw it
      * into a random testcase to avoid running test setup/teardown again.
@@ -528,11 +531,26 @@ abstract class BaseSqlGeneratorIntegrationTest<DestinationState : MinimumDestina
     @Test
     @Throws(java.lang.Exception::class)
     fun mixedCaseTest() {
+        fun toMixedCase(s: String): String =
+            s.mapIndexed { i, c ->
+                if (i % 2 == 0) {
+                    c
+                } else {
+                    c.uppercase()
+                }
+            }.joinToString(separator = "")
+        val streamId = sqlGenerator.buildStreamId(
+            namespace = streamId.originalNamespace,
+            name = toMixedCase(streamId.originalName),
+            rawNamespaceOverride = streamId.rawNamespace,
+        )
+        val streamConfig = incrementalDedupStream.copy(id = streamId)
+
         // Add case-sensitive columnName to test json path querying
-        incrementalDedupStream.columns!![generator.buildColumnId("IamACaseSensitiveColumnName")] =
+        streamConfig.columns[generator.buildColumnId("IamACaseSensitiveColumnName")] =
             AirbyteProtocolType.STRING
         createRawTable(streamId)
-        createFinalTable(incrementalDedupStream, "")
+        createFinalTable(streamConfig, "")
         insertRawTableRecords(
             streamId,
             BaseTypingDedupingTest.readRecords(
@@ -541,16 +559,20 @@ abstract class BaseSqlGeneratorIntegrationTest<DestinationState : MinimumDestina
         )
 
         var initialState =
-            getOnly(destinationHandler.gatherInitialState(listOf(incrementalDedupStream)))
+            getOnly(destinationHandler.gatherInitialState(listOf(streamConfig)))
         Assertions.assertTrue(
             initialState.isFinalTableEmpty,
             "Final table should be empty before T+D"
+        )
+        Assertions.assertTrue(
+            initialState.isFinalTablePresent,
+            "Final table should exist after we create it"
         )
 
         executeTypeAndDedupe(
             generator,
             destinationHandler,
-            incrementalDedupStream,
+            streamConfig,
             Optional.empty(),
             ""
         )
@@ -563,7 +585,7 @@ abstract class BaseSqlGeneratorIntegrationTest<DestinationState : MinimumDestina
         )
 
         initialState =
-            getOnly(destinationHandler.gatherInitialState(listOf(incrementalDedupStream)))
+            getOnly(destinationHandler.gatherInitialState(listOf(streamConfig)))
         assertFalse(initialState.isFinalTableEmpty, "Final table should not be empty after T+D")
     }
 
