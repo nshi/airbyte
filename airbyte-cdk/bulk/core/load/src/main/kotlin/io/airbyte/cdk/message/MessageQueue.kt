@@ -3,7 +3,6 @@ package io.airbyte.cdk.message
 
 import jakarta.inject.Singleton
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 
 interface Sized {
@@ -11,11 +10,9 @@ interface Sized {
 }
 
 interface MessageQueue<K, T: Sized> {
-    val nShardsPerKey: Int
-
     suspend fun acquireQueueBytesBlocking(bytes: Long)
     suspend fun releaseQueueBytes(bytes: Long)
-    suspend fun getChannel(key: K, shard: Int): QueueChannel<T>
+    suspend fun getChannel(key: K): QueueChannel<T>
 }
 
 interface QueueChannel<T: Sized> {
@@ -31,17 +28,12 @@ interface QueueChannel<T: Sized> {
         channel.send(message)
     }
 
-    suspend fun receive(timeoutMs: Long): T? {
+    suspend fun receive(): T {
         if (closed.get()) {
             throw IllegalStateException("Receive from closed QueueChannel")
         }
-
-        val message = withTimeoutOrNull(timeoutMs) { channel.receive() }
-        if (message != null) {
-            messageQueue.releaseQueueBytes(message.sizeBytes)
-        }
-
-        return message
+        messageQueue.releaseQueueBytes(channel.receive().sizeBytes)
+        return channel.receive()
     }
 }
 

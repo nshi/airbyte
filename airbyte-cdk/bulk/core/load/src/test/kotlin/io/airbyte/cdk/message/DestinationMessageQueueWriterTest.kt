@@ -2,12 +2,14 @@ package io.airbyte.cdk.message
 
 import io.airbyte.cdk.command.DestinationCatalog
 import io.airbyte.cdk.command.DestinationStream
+import io.airbyte.cdk.command.DestinationStream.Descriptor
 import io.airbyte.cdk.state.StateManager
 import io.airbyte.cdk.state.StreamManager
 import io.airbyte.cdk.state.StreamsManager
 import io.micronaut.context.annotation.Factory
-import io.micronaut.context.annotation.Primary
 import io.micronaut.context.annotation.Prototype
+import io.micronaut.context.annotation.Replaces
+import io.micronaut.context.annotation.Requires
 import io.micronaut.test.extensions.junit5.annotation.MicronautTest
 import jakarta.inject.Inject
 import jakarta.inject.Singleton
@@ -21,36 +23,95 @@ import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.ArgumentsProvider
 import org.junit.jupiter.params.provider.ArgumentsSource
 
-@MicronautTest
+@MicronautTest(environments = ["DestinationMessageQueueWriterTest"])
 class DestinationMessageQueueWriterTest {
     @Inject lateinit var testContextFactory: TestContextFactory
 
+    @Factory
+    class CatalogProvider {
+        @Prototype
+        @Replaces(DestinationCatalog::class)
+        @Requires(env = ["DestinationMessageQueueWriterTest"])
+        fun make() = DestinationCatalog(listOf(
+                        DestinationStream(Descriptor("namespace","stream-1")),
+                        DestinationStream(Descriptor("namespace","stream-2")),
+                        DestinationStream(Descriptor("namespace","stream-3"))
+        ))
+    }
+
     @Prototype
-    @Primary
+    @Replaces(StateManager::class)
+    @Requires(env = ["DestinationMessageQueueWriterTest"])
     class MockStateManager: StateManager {
+        val streamStateMap = mutableMapOf<Pair<DestinationStream, Long>, DestinationStateMessage>()
+        val globalStateQueue = mutableListOf<Pair<List<Pair<DestinationStream, Long>>, DestinationStateMessage>>()
+
         override fun addStreamState(
             stream: DestinationStream,
             index: Long,
             stateMessage: DestinationStateMessage
         ) {
-            TODO("Not yet implemented")
+            streamStateMap[Pair(stream, index)] = stateMessage
         }
 
         override fun addGlobalState(
             streamIndexes: List<Pair<DestinationStream, Long>>,
             stateMessage: DestinationStateMessage
         ) {
-            TODO("Not yet implemented")
+            globalStateQueue.add(Pair(streamIndexes, stateMessage))
         }
 
         override fun flushStates() {
+            // Unneeded
+        }
+    }
+
+    class MockStreamManager: StreamManager {
+        override fun countRecordIn(sizeBytes: Long): Long {
+            TODO("Not yet implemented")
+        }
+
+        override fun countRecordOut(sizeBytes: Long) {
+            TODO("Not yet implemented")
+        }
+
+        override fun markPublishComplete() {
+            TODO("Not yet implemented")
+        }
+
+        override fun markConsumptionComplete() {
+            TODO("Not yet implemented")
+        }
+
+        override fun markCheckpoint(): Pair<Long, Long> {
+            TODO("Not yet implemented")
+        }
+
+        override fun updateBatchState(batch: BatchEnvelope) {
+            TODO("Not yet implemented")
+        }
+
+        override fun isBatchProcessingComplete(): Boolean {
+            TODO("Not yet implemented")
+        }
+
+        override fun areRecordsPersistedUntil(index: Long): Boolean {
+            TODO("Not yet implemented")
+        }
+
+        override fun markClosed() {
+            TODO("Not yet implemented")
+        }
+
+        override fun awaitStreamClosed(): Boolean {
             TODO("Not yet implemented")
         }
 
     }
 
     @Prototype
-    @Primary
+    @Replaces(StreamsManager::class)
+    @Requires(env = ["DestinationMessageQueueWriterTest"])
     class MockStreamsManager: StreamsManager {
         override fun getManager(stream: DestinationStream): StreamManager {
             TODO()
@@ -76,7 +137,7 @@ class DestinationMessageQueueWriterTest {
     }
 
     @Singleton
-    @Primary
+    @Replaces(QueueChannelFactory::class)
     class MockQueueChannelFactory: QueueChannelFactory<DestinationRecordWrapped> {
         override fun make(messageQueue: MessageQueue<*, DestinationRecordWrapped>): QueueChannel<DestinationRecordWrapped> {
             return MockQueueChannel(messageQueue, Channel(), AtomicBoolean(false))
@@ -103,8 +164,7 @@ class DestinationMessageQueueWriterTest {
     }
 
     @Prototype
-    @Primary
-    class MockMessageQueueFactory() {
+    class MockMessageQueueFactory {
         fun make(nShardsPerKey: Int) = MockMessageQueue(nShardsPerKey)
     }
 
@@ -133,6 +193,16 @@ class DestinationMessageQueueWriterTest {
         )
     }
 
+    data class TestCase(
+        val nShards: Int,
+        val stateIsGlobal: Boolean,
+        val nRecords: Int,
+        val stateEvery: Int,
+        val shuffled: Boolean
+    ) {
+        fun getRecords(): List<Pair<DestinationMessage, Long>> = TODO()
+    }
+
     /**
      * Scenarios:
      *   * nShards: esp 1 versus >1
@@ -156,9 +226,9 @@ class DestinationMessageQueueWriterTest {
 
     @ParameterizedTest
     @ArgumentsSource(DestinationMessageQueueWriterTestArguments::class)
-    fun testWritingRecord(nShards: Int, messages: List<Pair<DestinationMessage, Long>>) = runTest {
-        val ctx = testContextFactory.make(nShards)
-        messages.forEach { (message, size) ->
+    fun testWritingRecord(testCase: TestCase) = runTest {
+        val ctx = testContextFactory.make(testCase.nShards)
+        testCase.getRecords().forEach { (message, size) ->
             ctx.writer.publish(message, size)
         }
 

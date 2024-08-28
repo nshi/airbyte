@@ -5,9 +5,7 @@ import io.airbyte.cdk.state.StreamManager
 import io.airbyte.cdk.state.StreamsManager
 import io.airbyte.cdk.write.StreamLoader
 import io.micronaut.context.annotation.Secondary
-import jakarta.inject.Provider
 import jakarta.inject.Singleton
-import kotlinx.coroutines.delay
 import org.apache.mina.util.ConcurrentHashSet
 
 
@@ -20,16 +18,16 @@ class CloseStreamTask(
         val oncePerStream: ConcurrentHashSet<DestinationStream> = ConcurrentHashSet()
     }
 
-    override val concurrency = Task.Concurrency("close-stream", 1)
-
     override suspend fun execute() {
-        if (oncePerStream.contains(streamLoader.stream)) {
+        /** Guard against running this more than once per stream */
+        if (oncePerStream.contains(streamLoader.stream)
+            || streamManager.streamIsClosed()) {
             return
         }
         oncePerStream.add(streamLoader.stream)
         streamLoader.close()
-        streamManager.closeStream()
-        taskLauncher.enqueueTeardownTask()
+        streamManager.markClosed()
+        taskLauncher.startTeardownTask()
     }
 }
 

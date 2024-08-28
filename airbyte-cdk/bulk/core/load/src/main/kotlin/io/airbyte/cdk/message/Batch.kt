@@ -1,11 +1,9 @@
 package io.airbyte.cdk.message
 
+import com.google.common.collect.Range
 import com.google.common.collect.RangeSet
 import com.google.common.collect.TreeRangeSet
-import io.airbyte.cdk.util.EmptyRange
-import io.airbyte.cdk.util.ShardedRange
-import io.airbyte.cdk.util.Indexes
-import io.airbyte.cdk.util.ShardedRangeSet
+import java.nio.file.Path
 
 /**
  * Represents an accumulated batch of records in some stage of processing.
@@ -13,39 +11,30 @@ import io.airbyte.cdk.util.ShardedRangeSet
  * Emitted by the record accumulator per batch accumulated. Handled by
  * the batch processor, which may advanced the state and yield a new batch.
  */
-open class Batch(
-    val name: String? = null,
-    val state: State = State.ACCUMULATING,
-    val mergeWithNext: Boolean = false,
-) {
+interface Batch {
     enum class State {
-        ACCUMULATING,
-        ACCUMULATED,
+        LOCAL,
         PERSISTED,
         COMPLETE
     }
 
-    fun withState(newState: State): Batch {
-        return Batch(name, newState)
-    }
+    val state: State
 }
 
-data class BatchEnvelope(
-    val batch: Batch,
-    val ranges: Map<Int, ShardedRangeSet> = emptyMap(),
-) {
-    constructor(shard: Int, range: ShardedRange, batch: Batch):
-        this(
-            batch = batch,
-            ranges = when (range) {
-                is Indexes -> mapOf(shard to
-                    ShardedRangeSet(range.nShards,
-                        TreeRangeSet.create(listOf(range.unshardedRange))))
-                is EmptyRange -> emptyMap()
-            }
-        )
+class LocalStagedFile(
+    val localPath: Path,
+    val totalSizeBytes: Long,
+    override val state: Batch.State = Batch.State.LOCAL
+): Batch
 
-    fun withBatch(newBatch: Batch): BatchEnvelope {
+data class BatchEnvelope<B: Batch>(
+    val batch: B,
+    val ranges: RangeSet<Long> = TreeRangeSet.create()
+) {
+    constructor(batch: B, range: Range<Long>):
+        this(batch = batch, ranges = TreeRangeSet.create(listOf(range)))
+
+    fun <C: Batch> withBatch(newBatch: C): BatchEnvelope<C> {
         return BatchEnvelope(newBatch, ranges)
     }
 }

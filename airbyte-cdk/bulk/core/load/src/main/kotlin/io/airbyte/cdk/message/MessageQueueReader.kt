@@ -2,22 +2,20 @@ package io.airbyte.cdk.message
 
 import io.airbyte.cdk.command.DestinationStream
 import io.airbyte.cdk.command.WriteConfiguration
-import io.airbyte.cdk.state.StreamsManager
 import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 interface MessageQueueReader<K, T> {
-    suspend fun readChunk(key: K, shard: Int = 0): Flow<T>
+    suspend fun readChunk(key: K): Flow<T>
 }
 
 @Singleton
 class DestinationMessageQueueReader(
     private val config: WriteConfiguration,
     private val messageQueue: DestinationMessageQueue,
-    private val streamsManager: StreamsManager,
-): MessageQueueReader<DestinationStream, DestinationRecordReadResult> {
+): MessageQueueReader<DestinationStream, DestinationRecordWrapped> {
     private val log = KotlinLogging.logger {}
 
     /**
@@ -29,8 +27,8 @@ class DestinationMessageQueueReader(
      * and all subsequent calls will return null until the flow is
      * reopened. After EOS, all reads will return null.
      */
-    override suspend fun readChunk(key: DestinationStream, shard: Int): Flow<DestinationRecordReadResult> = flow {
-        val channel = messageQueue.getChannel(key, shard)
+    override suspend fun readChunk(key: DestinationStream): Flow<DestinationRecordWrapped> = flow {
+        val channel = messageQueue.getChannel(key)
 
         // Keep emitting records until we
         //  * timeout
@@ -38,45 +36,22 @@ class DestinationMessageQueueReader(
         //  * reach the end of the stream
         var totalBytesRead = 0L
         var recordsRead = 0L
-        val manager = streamsManager.getManager(key)
-        val maxBytes = config.accumulatorMaxChunkSizeBytes
+        val maxBytes = config.chunkSizeBytes
         while (totalBytesRead < maxBytes) {
 
-            val wrapped = channel.receive(config.accumulatorReadTimeoutMs)
-            if (wrapped == null) {
-                log.info { "Read timed out for ${key.descriptor}:$shard" }
-                emit(Timeout)
-                return@flow
-            }
-
-            // Handle the next message
-            when (wrapped) {
+            when (val wrapped = channel.receive()) {
                 is StreamRecordWrapped -> {
                     totalBytesRead += wrapped.sizeBytes
-                    manager.countRecordOut(wrapped.sizeBytes)
-                    emit(IndexedDestinationRecord(
-                        record = wrapped.record,
-                        index = wrapped.index,
-                        sizeBytes = wrapped.sizeBytes
-                    ))
+                    emit(wrapped)
                 }
                 is StreamCompleteWrapped -> {
                     channel.closed.set(true)
-                    if ((0 until messageQueue.nShardsPerKey).all {
-                            messageQueue.getChannel(key, it).closed.get()
-                        }) {
-                        manager.markConsumptionComplete()
-                    }
-                    emit(EndOfStream(wrapped.index))
+                    emit(wrapped)
                     return@flow
                 }
             }
             recordsRead++
         }
-
-        // Report that we've reached the end of the chunk
-        log.info { "Reached end of chunk (${totalBytesRead}b/${maxBytes}b) for ${key.descriptor}:$shard" }
-        emit(EndOfChunk)
 
         return@flow
     }

@@ -17,6 +17,8 @@ import io.airbyte.protocol.models.v0.StreamDescriptor
 import io.micronaut.context.annotation.Factory
 import io.micronaut.context.annotation.Primary
 import io.micronaut.context.annotation.Prototype
+import io.micronaut.context.annotation.Replaces
+import io.micronaut.context.annotation.Requires
 import io.micronaut.test.extensions.junit5.annotation.MicronautTest
 import jakarta.inject.Inject
 import java.util.stream.Stream
@@ -27,13 +29,14 @@ import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.ArgumentsProvider
 import org.junit.jupiter.params.provider.ArgumentsSource
 
-@MicronautTest
+@MicronautTest(environments = ["DestinationMesssageDeserializerTest"])
 class DestinationMesssageDeserializerTest {
     @Factory
     class CatalogProvider {
 
         @Prototype
-        @Primary
+        @Replaces(DestinationCatalog::class)
+        @Requires(env = ["DestinationMesssageDeserializerTest"])
         fun make(): DestinationCatalog {
             return DestinationCatalog(
                 streams = listOf(

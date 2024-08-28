@@ -2,6 +2,7 @@ package io.airbyte.cdk.write
 
 import io.airbyte.cdk.command.DestinationStream
 import io.airbyte.cdk.message.Batch
+import io.airbyte.cdk.message.DestinationRecord
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.micronaut.context.annotation.Secondary
 import jakarta.inject.Singleton
@@ -10,34 +11,30 @@ interface StreamLoader {
     val stream: DestinationStream
 
     fun open() {}
-    fun getRecordAccumulator(shard: Int): RecordAccumulator
-    fun processBatch(batch: Batch): Batch = batch.withState(Batch.State.COMPLETE)
+    fun processRecords(records: Iterator<DestinationRecord>, totalSizeBytes: Long): Batch
+    fun processBatch(batch: Batch): Batch = object: Batch { override val state = Batch.State.COMPLETE }
     fun close() {}
 }
 
-
 class DefaultStreamLoader(
     override val stream: DestinationStream,
-    private val recordAccumulatorFactory: RecordAccumulatorFactory
 ) : StreamLoader {
     val log = KotlinLogging.logger {}
 
-    override fun getRecordAccumulator(shard: Int): RecordAccumulator {
-        log.info { "DefaultStreamLoader.getRecordAccumulator(stream=$stream, shard=$shard)" }
-        return recordAccumulatorFactory.make(this, shard)
+    override fun processRecords(records: Iterator<DestinationRecord>, totalSizeBytes: Long): Batch {
+        TODO("Default implementation adds airbyte metadata, maybe flattens, no-op maps, and converts to destination format")
     }
 }
 
 interface StreamLoaderFactory {
-    fun make(destination: Destination, stream: DestinationStream): StreamLoader
+    fun make(stream: DestinationStream): StreamLoader
 }
 
 @Singleton
 @Secondary
 class DefaultStreamLoaderFactory(
-    private val recordAccumulatorFactory: RecordAccumulatorFactory,
 ) : StreamLoaderFactory {
-    override fun make(destination: Destination, stream: DestinationStream): StreamLoader {
-        return DefaultStreamLoader(stream, recordAccumulatorFactory)
+    override fun make(stream: DestinationStream): StreamLoader {
+        TODO("See above")
     }
 }

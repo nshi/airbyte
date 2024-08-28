@@ -5,7 +5,6 @@ import io.airbyte.cdk.command.DestinationStream
 import io.airbyte.cdk.command.WriteConfiguration
 import io.airbyte.cdk.state.MemoryManager
 import io.airbyte.cdk.state.StreamsManager
-import io.airbyte.cdk.util.ShardedIndex
 import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.inject.Singleton
 import java.util.concurrent.ConcurrentHashMap
@@ -16,12 +15,12 @@ import kotlinx.coroutines.delay
 
 sealed class DestinationRecordWrapped: Sized
 data class StreamRecordWrapped(
-    val index: ShardedIndex,
+    val index: Long,
     override val sizeBytes: Long,
     val record: DestinationRecord
 ): DestinationRecordWrapped()
 data class StreamCompleteWrapped(
-    val index: ShardedIndex,
+    val index: Long,
 ): DestinationRecordWrapped() {
     override val sizeBytes: Long = 0L
 }
@@ -33,10 +32,8 @@ class DestinationMessageQueue(
     private val memoryManager: MemoryManager,
     private val queueChannelFactory: QueueChannelFactory<DestinationRecordWrapped>
 ): MessageQueue<DestinationStream, DestinationRecordWrapped> {
-    override val nShardsPerKey: Int = config.getNumAccumulatorsPerStream(catalog.streams.size)
-
     private val channels: ConcurrentHashMap<DestinationStream.Descriptor,
-        AtomicReferenceArray<QueueChannel<DestinationRecordWrapped>>> = ConcurrentHashMap()
+        QueueChannel<DestinationRecordWrapped>> = ConcurrentHashMap()
 
     private val totalQueueSizeBytes = AtomicLong(0L)
     private val maxQueueSizeBytes: AtomicReference<Long?> = AtomicReference(null)
@@ -60,10 +57,9 @@ class DestinationMessageQueue(
 
     override suspend fun getChannel(
         key: DestinationStream,
-        shard: Int
     ): QueueChannel<DestinationRecordWrapped> {
-        return channels[key.descriptor]?.get(shard) ?:
-            throw IllegalArgumentException("Reading from non-existent QueueChannel: ${key.descriptor}:$shard")
+        return channels[key.descriptor] ?:
+            throw IllegalArgumentException("Reading from non-existent QueueChannel: ${key.descriptor}")
     }
 
     private val log = KotlinLogging.logger {}
@@ -71,10 +67,7 @@ class DestinationMessageQueue(
 
     init {
         catalog.streams.forEach {
-            channels[it.descriptor] = AtomicReferenceArray(nShardsPerKey)
-            for (i in 0 until nShardsPerKey) {
-                channels[it.descriptor]!![i] = queueChannelFactory.make(this)
-            }
+            channels[it.descriptor] = queueChannelFactory.make(this)
         }
     }
 }

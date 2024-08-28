@@ -21,6 +21,6 @@ class DefaultDestination(
     private val streamLoaderFactory: StreamLoaderFactory
 ): Destination {
     override fun getStreamLoader(stream: DestinationStream): StreamLoader {
-        return streamLoaderFactory.make(this, stream)
+        return streamLoaderFactory.make(stream)
     }
 }

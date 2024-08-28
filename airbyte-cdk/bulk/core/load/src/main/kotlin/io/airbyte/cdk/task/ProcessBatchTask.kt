@@ -10,22 +10,20 @@ import jakarta.inject.Singleton
 
 
 class ProcessBatchTask(
-    private val batchEnvelope: BatchEnvelope,
+    private val batchEnvelope: BatchEnvelope<*>,
     private val streamLoader: StreamLoader,
     private val streamManager: StreamManager,
     private val taskLauncher: DestinationTaskLauncher
 ): Task {
-    override val concurrency = Task.Concurrency("process-batch", 1)
-
     override suspend fun execute() {
         val nextBatch = streamLoader.processBatch(batchEnvelope.batch)
         val nextWrapped = batchEnvelope.withBatch(nextBatch)
         streamManager.updateBatchState(nextWrapped)
 
         if (nextBatch.state != Batch.State.COMPLETE) {
-            taskLauncher.enqueueProcessBatchTask(streamLoader, nextWrapped)
+            taskLauncher.startProcessBatchTask(streamLoader, nextWrapped)
         } else if (streamManager.isBatchProcessingComplete()) {
-            taskLauncher.enqueueCloseStreamTask(streamLoader)
+            taskLauncher.startCloseStreamTasks(streamLoader)
         }
     }
 }
@@ -39,7 +37,7 @@ class ProcessBatchTaskFactory(
     fun make(
         taskLauncher: DestinationTaskLauncher,
         streamLoader: StreamLoader,
-        batchEnvelope: BatchEnvelope
+        batchEnvelope: BatchEnvelope<*>
     ): ProcessBatchTask {
         return ProcessBatchTask(
             batchEnvelope,
