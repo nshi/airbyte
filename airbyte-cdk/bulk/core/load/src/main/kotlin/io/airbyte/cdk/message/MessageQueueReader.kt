@@ -53,7 +53,6 @@ class DestinationMessageQueueReader(
             when (wrapped) {
                 is StreamRecordWrapped -> {
                     totalBytesRead += wrapped.sizeBytes
-                    messageQueue.releaseQueueBytes(wrapped.sizeBytes)
                     manager.countRecordOut(wrapped.sizeBytes)
                     emit(IndexedDestinationRecord(
                         record = wrapped.record,

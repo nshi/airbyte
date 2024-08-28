@@ -1,11 +1,16 @@
 package io.airbyte.cdk.message
 
 
+import jakarta.inject.Singleton
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 
-interface MessageQueue<K, T> {
+interface Sized {
+    val sizeBytes: Long
+}
+
+interface MessageQueue<K, T: Sized> {
     val nShardsPerKey: Int
 
     suspend fun acquireQueueBytesBlocking(bytes: Long)
@@ -13,14 +18,16 @@ interface MessageQueue<K, T> {
     suspend fun getChannel(key: K, shard: Int): QueueChannel<T>
 }
 
-data class QueueChannel<T>(
-    val channel: Channel<T> = Channel(Channel.UNLIMITED),
-    val closed: AtomicBoolean = AtomicBoolean(false)
-) {
+interface QueueChannel<T: Sized> {
+    val messageQueue: MessageQueue<*, T>
+    val channel: Channel<T>
+    val closed: AtomicBoolean
+
     suspend fun send(message: T) {
         if (closed.get()) {
             throw IllegalStateException("Send to closed QueueChannel")
         }
+        messageQueue.acquireQueueBytesBlocking(message.sizeBytes)
         channel.send(message)
     }
 
@@ -28,8 +35,34 @@ data class QueueChannel<T>(
         if (closed.get()) {
             throw IllegalStateException("Receive from closed QueueChannel")
         }
-        return withTimeoutOrNull(timeoutMs) {
-            channel.receive()
+
+        val message = withTimeoutOrNull(timeoutMs) { channel.receive() }
+        if (message != null) {
+            messageQueue.releaseQueueBytes(message.sizeBytes)
         }
+
+        return message
     }
 }
+
+interface QueueChannelFactory<T: Sized> {
+    fun make(messageQueue: MessageQueue<*, T>): QueueChannel<T>
+}
+
+
+class DefaultQueueChannel<T: Sized> (
+    override val messageQueue: MessageQueue<*, T>
+) : QueueChannel<T> {
+    override val channel = Channel<T>()
+    override val closed = AtomicBoolean(false)
+}
+
+@Singleton
+class DefaultQueueChannelFactory: QueueChannelFactory<DestinationRecordWrapped> {
+    override fun make(messageQueue: MessageQueue<*, DestinationRecordWrapped>): QueueChannel<DestinationRecordWrapped> =
+        DefaultQueueChannel(messageQueue)
+}
+
+
+
+

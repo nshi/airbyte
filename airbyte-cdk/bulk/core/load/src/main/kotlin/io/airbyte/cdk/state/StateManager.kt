@@ -9,52 +9,60 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import io.micronaut.core.util.clhm.ConcurrentLinkedHashMap
 import jakarta.inject.Singleton
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
 
+interface StateManager {
+    fun addStreamState(stream: DestinationStream,
+                       index: Long,
+                       stateMessage: DestinationStateMessage)
+    fun addGlobalState(streamIndexes: List<Pair<DestinationStream, Long>>,
+                       stateMessage: DestinationStateMessage)
+    fun flushStates()
+}
+
 @Singleton
-class StateManager(
+class DefaultStateManager(
     private val catalog: DestinationCatalog,
     private val streamsManager: StreamsManager,
     private val stateMessageFactory: AirbyteStateMessageFactory,
     private val outputConsumer: OutputConsumer
-) {
+): StateManager {
     private val log = KotlinLogging.logger {}
 
-    private val stateIsGlobal: AtomicReference<Boolean?> = AtomicReference(null)
+    data class GlobalState(
+        val streamIndexes: List<Pair<DestinationStream, Long>>,
+        val stateMessage: DestinationStateMessage
+    )
 
+    private val stateIsGlobal: AtomicReference<Boolean?> = AtomicReference(null)
     private val streamStates: ConcurrentHashMap<DestinationStream,
         LinkedHashMap<Long, DestinationStateMessage>> = ConcurrentHashMap()
+    private val globalStates: ConcurrentLinkedQueue<GlobalState> = ConcurrentLinkedQueue()
 
-    private val globalStates: ConcurrentLinkedHashMap<Long, DestinationStateMessage> =
-        ConcurrentLinkedHashMap.Builder<Long, DestinationStateMessage>()
-            .initialCapacity(1000)
-            .maximumWeightedCapacity(1000)
-            .build()
-
-    fun addState(stream: DestinationStream,
-                 stateMessage: DestinationStateMessage,
-                 index: Long,
-                 isGlobal: Boolean
-    ) {
-        if (stateIsGlobal.getAndSet(isGlobal) != isGlobal) {
+    override fun addStreamState(stream: DestinationStream,
+                                index: Long,
+                                stateMessage: DestinationStateMessage) {
+        if (stateIsGlobal.getAndSet(false) != false) {
             throw IllegalStateException("Global state cannot be mixed with non-global state")
         }
 
-        // Grab the latest index for this stream to calculate count
-        if (isGlobal) {
-            globalStates[index] = stateMessage
-            log.info { "Added global state at index: $index" }
-        } else {
-            val streamStates = streamStates.getOrPut(stream) { LinkedHashMap() }
-            streamStates[index] = stateMessage
-            log.info { "Added state for stream: $stream at index: $index" }
-        }
-
-        // TODO: Make this non-blocking
-        flushStates()
+        val streamStates = streamStates.getOrPut(stream) { LinkedHashMap() }
+        streamStates[index] = stateMessage
+        log.info { "Added state for stream: $stream at index: $index" }
     }
 
-    private fun flushStates() {
+    override fun addGlobalState(streamIndexes: List<Pair<DestinationStream, Long>>,
+                                stateMessage: DestinationStateMessage) {
+        if (stateIsGlobal.getAndSet(true) != true) {
+            throw IllegalStateException("Global state cannot be mixed with non-global state")
+        }
+
+        globalStates.add(GlobalState(streamIndexes, stateMessage))
+        log.info { "Added global state with stream indexes: $streamIndexes" }
+    }
+
+    override fun flushStates() {
         /*
             Iterate over the states in order, evicting each that passes
             the persistence check. If a state is not persisted, then
@@ -69,18 +77,18 @@ class StateManager(
     }
 
     private fun flushGlobalStates() {
-        for (index in globalStates.keys) {
-            if (catalog.streams.all {
-                    streamsManager.getManager(it).areRecordsPersistedUntil(index)
-                }) {
-                val stateMessage = globalStates.remove(index)
-                    ?: throw IllegalStateException("State not found for index: $index")
-                log.info { "Flushing global state for index: $index" }
-                val outMessage = stateMessageFactory.fromDestinationStateMessage(stateMessage)
-                outputConsumer.accept(outMessage)
-            } else {
-                break
-            }
+        if (globalStates.isEmpty()) {
+            return
+        }
+
+        val head = globalStates.peek()
+        val allStreamsPeristed = head.streamIndexes.all { (stream, index) ->
+            streamsManager.getManager(stream).areRecordsPersistedUntil(index)
+        }
+        if (allStreamsPeristed) {
+            globalStates.poll()
+            val outMessage = stateMessageFactory.fromDestinationStateMessage(head.stateMessage)
+            outputConsumer.accept(outMessage)
         }
     }
 

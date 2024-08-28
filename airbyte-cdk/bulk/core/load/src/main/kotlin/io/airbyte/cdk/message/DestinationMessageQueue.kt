@@ -4,7 +4,6 @@ import io.airbyte.cdk.command.DestinationCatalog
 import io.airbyte.cdk.command.DestinationStream
 import io.airbyte.cdk.command.WriteConfiguration
 import io.airbyte.cdk.state.MemoryManager
-import io.airbyte.cdk.state.StateManager
 import io.airbyte.cdk.state.StreamsManager
 import io.airbyte.cdk.util.ShardedIndex
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -14,25 +13,25 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicReferenceArray
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 
-sealed class DestinationRecordWrapped
+sealed class DestinationRecordWrapped: Sized
 data class StreamRecordWrapped(
     val index: ShardedIndex,
-    val sizeBytes: Long,
+    override val sizeBytes: Long,
     val record: DestinationRecord
 ): DestinationRecordWrapped()
 data class StreamCompleteWrapped(
     val index: ShardedIndex,
-): DestinationRecordWrapped()
+): DestinationRecordWrapped() {
+    override val sizeBytes: Long = 0L
+}
 
 @Singleton
 class DestinationMessageQueue(
-    private val catalog: DestinationCatalog,
+    catalog: DestinationCatalog,
     private val config: WriteConfiguration,
-    private val streamsManager: StreamsManager,
     private val memoryManager: MemoryManager,
+    private val queueChannelFactory: QueueChannelFactory<DestinationRecordWrapped>
 ): MessageQueue<DestinationStream, DestinationRecordWrapped> {
     override val nShardsPerKey: Int = config.getNumAccumulatorsPerStream(catalog.streams.size)
 
@@ -74,7 +73,7 @@ class DestinationMessageQueue(
         catalog.streams.forEach {
             channels[it.descriptor] = AtomicReferenceArray(nShardsPerKey)
             for (i in 0 until nShardsPerKey) {
-                channels[it.descriptor]!![i] = QueueChannel()
+                channels[it.descriptor]!![i] = queueChannelFactory.make(this)
             }
         }
     }

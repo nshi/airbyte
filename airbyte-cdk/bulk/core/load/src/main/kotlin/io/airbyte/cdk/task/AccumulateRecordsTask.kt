@@ -8,7 +8,6 @@ import io.airbyte.cdk.message.DestinationRecordReadResult
 import io.airbyte.cdk.message.EndOfChunk
 import io.airbyte.cdk.message.EndOfStream
 import io.airbyte.cdk.message.IndexedDestinationRecord
-import io.airbyte.cdk.message.MessageQueue
 import io.airbyte.cdk.message.MessageQueueReader
 import io.airbyte.cdk.message.Timeout
 import io.airbyte.cdk.state.StreamManager

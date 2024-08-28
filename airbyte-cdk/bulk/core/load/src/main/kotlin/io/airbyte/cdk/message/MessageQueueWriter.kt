@@ -1,6 +1,7 @@
 package io.airbyte.cdk.message
 
 import io.airbyte.cdk.command.DestinationCatalog
+import io.airbyte.cdk.command.DestinationStream
 import io.airbyte.cdk.state.StateManager
 import io.airbyte.cdk.state.StreamsManager
 import io.airbyte.cdk.util.ShardedIndex
@@ -15,7 +16,7 @@ interface MessageQueueWriter<T> {
 @Singleton
 class DestinationMessageQueueWriter(
     private val catalog: DestinationCatalog,
-    private val messageQueue: DestinationMessageQueue,
+    private val messageQueue: MessageQueue<DestinationStream, DestinationRecordWrapped>,
     private val streamsManager: StreamsManager,
     private val stateManager: StateManager
 ): MessageQueueWriter<DestinationMessage> {
@@ -38,7 +39,6 @@ class DestinationMessageQueueWriter(
                 when (message) {
                     /* If a data record */
                     is DestinationRecord -> {
-                        messageQueue.acquireQueueBytesBlocking(sizeBytes)
                         val shard = (count % nShards.toLong()).toInt()
                         val wrapped = StreamRecordWrapped(
                             index = index,
@@ -61,17 +61,30 @@ class DestinationMessageQueueWriter(
             }
 
             is DestinationStateMessage -> {
-                val (streams, isGlobal) = when (message) {
-                    is DestinationStreamState -> Pair(listOf(message.streamState.stream), false)
-                    is DestinationGlobalState -> Pair(catalog.streams, true)
-                }
-                streams.forEach { stream ->
-                    val manager = streamsManager.getManager(stream)
-                    val (currentIndex, countSinceLast) = manager.markCheckpoint()
-                    val messageWithCount =
-                        message.withDestinationStats(DestinationStateMessage.Stats(countSinceLast))
-                    log.info { "Received state message for $stream at index $currentIndex" }
-                    stateManager.addState(stream, messageWithCount, currentIndex, isGlobal)
+                when (message) {
+                    is DestinationStreamState -> {
+                        val stream = message.streamState.stream
+                        val manager = streamsManager.getManager(stream)
+                        val (currentIndex, countSinceLast) = manager.markCheckpoint()
+                        val messageWithCount = message.withDestinationStats(
+                            DestinationStateMessage.Stats(countSinceLast)
+                        )
+                        stateManager.addStreamState(stream, currentIndex, messageWithCount)
+
+                    }
+                    is DestinationGlobalState -> {
+                        val streamWithIndexAndCount = catalog.streams.map { stream ->
+                            val manager = streamsManager.getManager(stream)
+                            val (currentIndex, countSinceLast) = manager.markCheckpoint()
+                            Triple(stream, currentIndex, countSinceLast)
+                        }
+                        val totalCount = streamWithIndexAndCount.sumOf { it.third }
+                        val messageWithCount = message.withDestinationStats(
+                            DestinationStateMessage.Stats(totalCount)
+                        )
+                        val streamIndexes = streamWithIndexAndCount.map { it.first to it.second }
+                        stateManager.addGlobalState(streamIndexes, messageWithCount)
+                    }
                 }
             }
 
