@@ -7,8 +7,8 @@ import io.micronaut.context.annotation.Factory
 import jakarta.inject.Singleton
 
 data class E2EDestinationConfiguration(
-    override val maxNumAccumulators: Int,
     val testDestination: TestDestination,
+    override val recordBatchSizeBytes: Long
 ): DefaultWriteConfiguration(), DestinationConfiguration
 
 @Factory
@@ -18,8 +18,8 @@ class E2EDestinationConfigurationFactory :
     @Singleton
     override fun makeWithoutExceptionHandling(pojo: E2EDestinationConfigurationJsonObject): E2EDestinationConfiguration {
         return E2EDestinationConfiguration(
-            pojo.maxNumAccumulators,
-            pojo.testDestination
+            pojo.testDestination,
+            pojo.recordBatchSizeBytes
         )
     }
 }

@@ -8,8 +8,8 @@ import java.nio.file.Path
 /**
  * Represents an accumulated batch of records in some stage of processing.
  *
- * Emitted by the record accumulator per batch accumulated. Handled by
- * the batch processor, which may advanced the state and yield a new batch.
+ * Emitted by the record processor to describe the batch accumulated. Handled by
+ * the batch processor, which may advance the state and yield a new batch.
  */
 interface Batch {
     enum class State {
@@ -19,14 +19,40 @@ interface Batch {
     }
 
     val state: State
+
+    /* TODO: Allow the implementor to return a DestinationState
+        update to be persisted to the platform before advancing */
 }
 
-class LocalStagedFile(
-    val localPath: Path,
-    val totalSizeBytes: Long,
-    override val state: Batch.State = Batch.State.LOCAL
+/**
+ * Simple batch: use if you need no other metadata for processing.
+ */
+data class SimpleBatch(
+    override val state: Batch.State
 ): Batch
 
+/**
+ * Represents a file of records locally staged.
+ */
+interface LocalStagedFile: Batch {
+    val localPath: Path
+    val totalSizeBytes: Long
+}
+
+/**
+ * Represents a file of raw records staged to disk for
+ * pre-processing. Used internally by the framework
+ */
+data class StagedRawMessagesFile(
+    override val localPath: Path,
+    override val totalSizeBytes: Long,
+    override val state: Batch.State = Batch.State.LOCAL
+): LocalStagedFile
+
+/**
+ * Internally-used wrapper for tracking the association
+ * between a batch and the range of records it contains.
+ */
 data class BatchEnvelope<B: Batch>(
     val batch: B,
     val ranges: RangeSet<Long> = TreeRangeSet.create()

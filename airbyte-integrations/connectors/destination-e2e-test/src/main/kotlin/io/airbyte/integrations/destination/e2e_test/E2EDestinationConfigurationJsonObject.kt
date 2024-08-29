@@ -20,10 +20,10 @@ class E2EDestinationConfigurationJsonObject: ConfigurationJsonObjectBase() {
     @JsonPropertyDescription("The type of destination to be used.")
     val testDestination: TestDestination = LoggingDestination()
 
-    @JsonProperty("max_num_accumulators")
-    @JsonSchemaTitle("Max Concurrency")
-    @JsonPropertyDescription("The maximum number of concurrently running record accumulators.")
-    val maxNumAccumulators: Int = 1
+    @JsonProperty("record_batch_size_bytes")
+    @JsonSchemaTitle("Record Batch Size Bytes")
+    @JsonPropertyDescription("The maximum amount of record data to stage before processing.")
+    val recordBatchSizeBytes: Long = 1024L * 1024L
 }
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "test_destination_type")

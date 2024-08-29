@@ -6,13 +6,13 @@ import jakarta.inject.Singleton
 
 interface Destination {
     // Called once before anything else
-    fun setup() {}
+    suspend fun setup() {}
 
     // Return a StreamLoader for the given stream
     fun getStreamLoader(stream: DestinationStream): StreamLoader
 
     // Called once at the end of the job
-    fun teardown(succeeded: Boolean = true) {}
+    suspend fun teardown(succeeded: Boolean = true) {}
 }
 
 @Singleton

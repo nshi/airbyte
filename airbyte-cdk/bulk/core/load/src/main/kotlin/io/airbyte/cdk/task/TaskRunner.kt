@@ -19,7 +19,6 @@ class TaskRunner {
         val log = KotlinLogging.logger {}
 
         while (true) {
-            yield()
             val task = queue.receive()
 
             if (task is Done) {
@@ -34,6 +33,8 @@ class TaskRunner {
                 log.info { "Executing task: $task" }
                 task.execute()
             }
+
+            yield()
         }
     }
 }

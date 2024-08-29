@@ -109,7 +109,8 @@ class DefaultStreamManager(
     }
 
     override fun areRecordsPersistedUntil(index: Long): Boolean {
-        return isProcessingCompleteForState(index, Batch.State.PERSISTED)
+        return isProcessingCompleteForState(index, Batch.State.PERSISTED) ||
+            isProcessingCompleteForState(index, Batch.State.COMPLETE) // complete => persisted
     }
 
     override fun markClosed() {

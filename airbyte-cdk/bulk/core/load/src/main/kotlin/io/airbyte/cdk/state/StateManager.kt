@@ -6,7 +6,6 @@ import io.airbyte.cdk.message.AirbyteStateMessageFactory
 import io.airbyte.cdk.message.DestinationStateMessage
 import io.airbyte.cdk.output.OutputConsumer
 import io.github.oshai.kotlinlogging.KotlinLogging
-import io.micronaut.core.util.clhm.ConcurrentLinkedHashMap
 import jakarta.inject.Singleton
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -82,10 +81,10 @@ class DefaultStateManager(
         }
 
         val head = globalStates.peek()
-        val allStreamsPeristed = head.streamIndexes.all { (stream, index) ->
+        val allStreamsPersisted = head.streamIndexes.all { (stream, index) ->
             streamsManager.getManager(stream).areRecordsPersistedUntil(index)
         }
-        if (allStreamsPeristed) {
+        if (allStreamsPersisted) {
             globalStates.poll()
             val outMessage = stateMessageFactory.fromDestinationStateMessage(head.stateMessage)
             outputConsumer.accept(outMessage)

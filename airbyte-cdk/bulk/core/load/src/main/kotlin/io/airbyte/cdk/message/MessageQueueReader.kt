@@ -28,24 +28,22 @@ class DestinationMessageQueueReader(
      * reopened. After EOS, all reads will return null.
      */
     override suspend fun readChunk(key: DestinationStream): Flow<DestinationRecordWrapped> = flow {
-        val channel = messageQueue.getChannel(key)
-
         // Keep emitting records until we
         //  * timeout
         //  * reach the max chunk size
         //  * reach the end of the stream
         var totalBytesRead = 0L
         var recordsRead = 0L
-        val maxBytes = config.chunkSizeBytes
+        val maxBytes = config.recordBatchSizeBytes
         while (totalBytesRead < maxBytes) {
 
-            when (val wrapped = channel.receive()) {
+            when (val wrapped = messageQueue.getChannel(key).receive()) {
                 is StreamRecordWrapped -> {
                     totalBytesRead += wrapped.sizeBytes
                     emit(wrapped)
                 }
                 is StreamCompleteWrapped -> {
-                    channel.closed.set(true)
+                    messageQueue.getChannel(key).closed.set(true)
                     emit(wrapped)
                     return@flow
                 }

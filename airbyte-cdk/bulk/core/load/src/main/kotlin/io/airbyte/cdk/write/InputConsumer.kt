@@ -26,23 +26,20 @@ interface InputConsumer<T> {
 
         var index = 0L
         var bytes = 0L
-        inputStream.bufferedReader(StandardCharsets.UTF_8).use {
-            it.lineSequence().forEach { line ->
-                val lineSize = line.length.toLong()
-                if (lineSize > 0L) {
-                    val deserialized = deserializer.deserialize(line)
-                    messageQueue.publish(deserialized, lineSize)
+        inputStream.bufferedReader(StandardCharsets.UTF_8).lineSequence().forEach { line ->
+            val lineSize = line.length.toLong()
+            if (lineSize > 0L) {
+                val deserialized = deserializer.deserialize(line)
+                messageQueue.publish(deserialized, lineSize)
 
-                    if (index % 10_000L == 0L) {
-                        log.info { "Consumed $index messages (${bytes / 1024L}mb) from the input stream" }
-                    }
-                    index++
-                    bytes += lineSize
+                bytes += lineSize
+                if (++index % 10_000L == 0L) {
+                    log.info { "Consumed $index messages (${bytes / 1024L}mb) from the input stream" }
                 }
             }
         }
 
-        log.info { "Finished consuming $index messages (${bytes / 1024L}mb) from the input stream"}
+        log.info { "Finished consuming $index messages (${bytes}b) from the input stream"}
     }
 }
 

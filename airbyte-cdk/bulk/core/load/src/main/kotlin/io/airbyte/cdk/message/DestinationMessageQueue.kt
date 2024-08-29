@@ -11,7 +11,13 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicReferenceArray
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withContext
 
 sealed class DestinationRecordWrapped: Sized
 data class StreamRecordWrapped(
@@ -36,23 +42,35 @@ class DestinationMessageQueue(
         QueueChannel<DestinationRecordWrapped>> = ConcurrentHashMap()
 
     private val totalQueueSizeBytes = AtomicLong(0L)
-    private val maxQueueSizeBytes: AtomicReference<Long?> = AtomicReference(null)
+    private val maxQueueSizeBytes: Long
+    private val memoryLock = ReentrantLock()
+    private val memoryLockCondition = memoryLock.newCondition()
+
+    init {
+        catalog.streams.forEach {
+            channels[it.descriptor] = queueChannelFactory.make(this)
+        }
+        val adjustedRatio = config.maxMessageQueueMemoryUsageRatio /
+            (1.0 + config.estimatedRecordMemoryOverheadRatio)
+        maxQueueSizeBytes = runBlocking {
+            memoryManager.reserveRatio(adjustedRatio)
+        }
+    }
 
     override suspend fun acquireQueueBytesBlocking(bytes: Long) {
-        if (maxQueueSizeBytes.get() == null) {
-            val maxBytes = memoryManager.reserveRatio(config.maxMessageQueueMemoryUsageRatio)
-            maxQueueSizeBytes.set(maxBytes)
-        }
-        val maxBytes = maxQueueSizeBytes.get()!!
-        totalQueueSizeBytes.addAndGet(bytes)
-        while (totalQueueSizeBytes.get() > maxBytes) {
-            log.info { "Queue is full, waiting for space" }
-            delay(config.memoryAvailabilityPollFrequencyMs)
+        memoryLock.withLock {
+            while (totalQueueSizeBytes.get() + bytes > maxQueueSizeBytes) {
+                memoryLockCondition.await()
+            }
+            totalQueueSizeBytes.addAndGet(bytes)
         }
     }
 
     override suspend fun releaseQueueBytes(bytes: Long) {
-        totalQueueSizeBytes.addAndGet(-bytes)
+        memoryLock.withLock {
+            totalQueueSizeBytes.addAndGet(-bytes)
+            memoryLockCondition.signalAll()
+        }
     }
 
     override suspend fun getChannel(
@@ -63,11 +81,4 @@ class DestinationMessageQueue(
     }
 
     private val log = KotlinLogging.logger {}
-
-
-    init {
-        catalog.streams.forEach {
-            channels[it.descriptor] = queueChannelFactory.make(this)
-        }
-    }
 }

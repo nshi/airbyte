@@ -3,6 +3,7 @@ package io.airbyte.cdk.task
 import io.airbyte.cdk.message.BatchEnvelope
 import io.airbyte.cdk.command.DestinationCatalog
 import io.airbyte.cdk.message.LocalStagedFile
+import io.airbyte.cdk.message.StagedRawMessagesFile
 import io.airbyte.cdk.write.StreamLoader
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.micronaut.context.annotation.Factory
@@ -43,7 +44,7 @@ class DestinationTaskLauncher(
         taskRunner.enqueue(task)
     }
 
-    suspend fun startProcessRecordsTask(streamLoader: StreamLoader, fileEnvelope: BatchEnvelope<LocalStagedFile>) {
+    suspend fun startProcessRecordsTask(streamLoader: StreamLoader, fileEnvelope: BatchEnvelope<StagedRawMessagesFile>) {
         log.info { "Starting process records task for ${streamLoader.stream}, file ${fileEnvelope.batch}" }
         taskRunner.enqueue(processRecordsTaskFactory.make(this, streamLoader, fileEnvelope))
     }

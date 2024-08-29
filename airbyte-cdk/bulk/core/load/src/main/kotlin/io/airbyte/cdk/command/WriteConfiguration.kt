@@ -7,36 +7,22 @@ interface WriteConfiguration {
     /**
      * Batch accumulation settings.
      */
-    val chunkSizeBytes: Long
-
-    /**
-     * Work queue settings.
-     */
-    val noTaskAvailableWaitTimeMs: Long
-    val reenqueueTaskWaitTimeMs: Long
+    val recordBatchSizeBytes: Long
+    val firstStageTmpFilePrefix: String
 
     /**
      * Memory queue settings
      */
-    val maxMessageQueueMemoryUsageRatio: Double
-    val memoryAvailabilityPollFrequencyMs: Long
-
-    /**
-     * Disk accumulation config
-     */
-    val firstStageTmpFilePrefix: String
+    val maxMessageQueueMemoryUsageRatio: Double // as fraction of available memory
+    val estimatedRecordMemoryOverheadRatio: Double // 0 => No overhead, 1.0 => 2x overhead
 }
 
 @Singleton
 @Secondary
 open class DefaultWriteConfiguration: WriteConfiguration {
-    override val chunkSizeBytes: Long = 200L * 1024L * 1024L
-
-    override val noTaskAvailableWaitTimeMs: Long = 1000L
-    override val reenqueueTaskWaitTimeMs: Long = 5000L
+    override val recordBatchSizeBytes: Long = 200L * 1024L * 1024L
+    override val firstStageTmpFilePrefix = "aibyte-cdk-load-staged-raw-records"
 
     override val maxMessageQueueMemoryUsageRatio: Double = 0.2
-    override val memoryAvailabilityPollFrequencyMs: Long = 1000L
-
-    override val firstStageTmpFilePrefix = "aibyte-cdk-load/spilled-records"
+    override val estimatedRecordMemoryOverheadRatio: Double = 1.1
 }

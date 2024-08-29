@@ -5,8 +5,8 @@ import io.airbyte.cdk.command.DestinationStream
 import io.airbyte.cdk.command.WriteConfiguration
 import io.airbyte.cdk.message.BatchEnvelope
 import io.airbyte.cdk.message.DestinationRecordWrapped
-import io.airbyte.cdk.message.LocalStagedFile
 import io.airbyte.cdk.message.MessageQueueReader
+import io.airbyte.cdk.message.StagedRawMessagesFile
 import io.airbyte.cdk.message.StreamCompleteWrapped
 import io.airbyte.cdk.message.StreamRecordWrapped
 import io.airbyte.cdk.write.StreamLoader
@@ -16,8 +16,8 @@ import java.nio.file.Files
 import kotlin.io.path.bufferedWriter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.runningFold
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
@@ -32,50 +32,58 @@ class SpillToDiskTask(
     data class ReadResult(
         val range: Range<Long>? = null,
         val sizeBytes: Long = 0,
-        val hasReadEndOfStream: Boolean = false
+        val hasReadEndOfStream: Boolean = false,
     )
+
+    private fun withIndex(range: Range<Long>?, index: Long): Range<Long> {
+        return if (range == null) {
+            Range.singleton(index)
+        } else if (index != range.upperEndpoint() + 1) {
+            throw IllegalStateException("Expected index ${range.upperEndpoint() + 1}, got $index")
+        } else {
+            range.span(Range.singleton(index))
+        }
+    }
 
     override suspend fun execute() {
         do {
-            /** Create a temporary file to write the records to */
-            val (path, bufferedReader) = withContext(Dispatchers.IO) {
+            val (path, result) = withContext(Dispatchers.IO) {
                 val path = Files.createTempFile(config.firstStageTmpFilePrefix, ".jsonl")
-                Pair(path, path.bufferedWriter(charset = Charsets.UTF_8))
+                val result = path.bufferedWriter(Charsets.UTF_8).use {
+                    /** Create a temporary file to write the records to */
+                    queueReader.readChunk(streamLoader.stream)
+                        .runningFold(ReadResult()) { (range, sizeBytes, _), wrapped ->
+                            when (wrapped) {
+                                is StreamRecordWrapped -> {
+                                    val nextRange = withIndex(range, wrapped.index)
+                                    it.write(wrapped.record.serialized)
+                                    it.write("\n")
+                                    ReadResult(nextRange, sizeBytes + wrapped.sizeBytes)
+                                }
+
+                                is StreamCompleteWrapped -> {
+                                    val nextRange = withIndex(range, wrapped.index)
+                                    return@runningFold ReadResult(nextRange, sizeBytes, true)
+                                }
+                            }
+                        }.flowOn(Dispatchers.IO)
+                        .toList()
+                }
+                Pair(path, result.last())
             }
 
-            log.info { "Writing records to $path" }
-
-            /** Read records from the queue and write them to the temporary file */
-            val (range, sizeBytes, endOfStream) = bufferedReader.use {
-                queueReader.readChunk(streamLoader.stream)
-                    .runningFold(ReadResult()) { (range, sizeBytes, _), wrapped ->
-                        when (wrapped) {
-                            is StreamRecordWrapped -> {
-                                val nextRange = if (range == null) {
-                                    Range.singleton(wrapped.index)
-                                } else {
-                                    range.span(Range.singleton(wrapped.index))
-                                }
-                                it.write(wrapped.record.serialized)
-                                ReadResult(nextRange, sizeBytes + wrapped.sizeBytes)
-                            }
-
-                            is StreamCompleteWrapped ->
-                                return@runningFold ReadResult(range, sizeBytes, true)
-                        }
-                    }.flowOn(Dispatchers.IO)
-            }.last()
-
             /** Handle the result */
+            val (range, sizeBytes, endOfStream) = result
 
             log.info { "Finished writing $range records (${sizeBytes}b) to $path" }
 
             // This could happen if the chunk only contained end-of-stream
             if (range == null) {
+                // We read 0 records, do nothing
                 return
             }
 
-            val wrapped = BatchEnvelope(LocalStagedFile(path, sizeBytes), range)
+            val wrapped = BatchEnvelope(StagedRawMessagesFile(path, sizeBytes), range)
             launcher.startProcessRecordsTask(streamLoader, wrapped)
 
             yield()

@@ -1,6 +1,8 @@
 package io.airbyte.cdk.message
 
 
+import io.airbyte.cdk.command.WriteConfiguration
+import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.inject.Singleton
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.channels.Channel
@@ -16,6 +18,7 @@ interface MessageQueue<K, T: Sized> {
 }
 
 interface QueueChannel<T: Sized> {
+    val config: WriteConfiguration
     val messageQueue: MessageQueue<*, T>
     val channel: Channel<T>
     val closed: AtomicBoolean
@@ -24,7 +27,8 @@ interface QueueChannel<T: Sized> {
         if (closed.get()) {
             throw IllegalStateException("Send to closed QueueChannel")
         }
-        messageQueue.acquireQueueBytesBlocking(message.sizeBytes)
+        val estimatedSize = message.sizeBytes * config.estimatedRecordMemoryOverheadRatio
+        messageQueue.acquireQueueBytesBlocking(estimatedSize.toLong())
         channel.send(message)
     }
 
@@ -32,8 +36,10 @@ interface QueueChannel<T: Sized> {
         if (closed.get()) {
             throw IllegalStateException("Receive from closed QueueChannel")
         }
-        messageQueue.releaseQueueBytes(channel.receive().sizeBytes)
-        return channel.receive()
+        val message = channel.receive()
+        val estimatedSize = message.sizeBytes * config.estimatedRecordMemoryOverheadRatio
+        messageQueue.releaseQueueBytes(estimatedSize.toLong())
+        return message
     }
 }
 
@@ -43,16 +49,19 @@ interface QueueChannelFactory<T: Sized> {
 
 
 class DefaultQueueChannel<T: Sized> (
+    override val config: WriteConfiguration,
     override val messageQueue: MessageQueue<*, T>
 ) : QueueChannel<T> {
-    override val channel = Channel<T>()
+    override val channel = Channel<T>(Channel.UNLIMITED)
     override val closed = AtomicBoolean(false)
 }
 
 @Singleton
-class DefaultQueueChannelFactory: QueueChannelFactory<DestinationRecordWrapped> {
+class DefaultQueueChannelFactory(
+    private val config: WriteConfiguration
+): QueueChannelFactory<DestinationRecordWrapped> {
     override fun make(messageQueue: MessageQueue<*, DestinationRecordWrapped>): QueueChannel<DestinationRecordWrapped> =
-        DefaultQueueChannel(messageQueue)
+        DefaultQueueChannel(config, messageQueue)
 }
 
 
