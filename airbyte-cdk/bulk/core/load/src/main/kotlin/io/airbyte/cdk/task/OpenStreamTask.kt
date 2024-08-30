@@ -6,7 +6,12 @@ import io.airbyte.cdk.write.StreamLoader
 import io.micronaut.context.annotation.Secondary
 import jakarta.inject.Singleton
 
-
+/**
+ * Wraps @[StreamLoader.open] and starts the spill-to-disk tasks.
+ *
+ * TODO: There's no reason to wait on initialization to start
+ *  spilling to disk.
+ */
 class OpenStreamTask(
     private val streamLoader: StreamLoader,
     private val taskLauncher: DestinationTaskLauncher

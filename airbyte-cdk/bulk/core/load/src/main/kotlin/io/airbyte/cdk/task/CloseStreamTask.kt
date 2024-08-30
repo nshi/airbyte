@@ -9,6 +9,10 @@ import jakarta.inject.Singleton
 import org.apache.mina.util.ConcurrentHashSet
 
 
+/**
+ * Wraps @[StreamLoader.close] and marks the stream as closed in the stream manager.
+ * Also starts the teardown task.
+ */
 class CloseStreamTask(
     private val streamLoader: StreamLoader,
     private val streamManager: StreamManager,
@@ -27,6 +31,8 @@ class CloseStreamTask(
         oncePerStream.add(streamLoader.stream)
         streamLoader.close()
         streamManager.markClosed()
+        /* TODO: just signal to the launcher that the stream is closed
+            and let it decide what to do next */
         taskLauncher.startTeardownTask()
     }
 }

@@ -19,8 +19,6 @@ class DestinationMessageQueueWriter(
     private val streamsManager: StreamsManager,
     private val stateManager: StateManager
 ): MessageQueueWriter<DestinationMessage> {
-    private val log = KotlinLogging.logger {}
-
     /**
      * Deserialize and route the message to the appropriate channel.
      *
@@ -53,6 +51,11 @@ class DestinationMessageQueueWriter(
 
             is DestinationStateMessage -> {
                 when (message) {
+                    /**
+                     * For a stream state message, mark the checkpoint and
+                     * add the message with index and count to the state manager.
+                     * Also, add the count to the destination stats.
+                     */
                     is DestinationStreamState -> {
                         val stream = message.streamState.stream
                         val manager = streamsManager.getManager(stream)
@@ -61,8 +64,11 @@ class DestinationMessageQueueWriter(
                             DestinationStateMessage.Stats(countSinceLast)
                         )
                         stateManager.addStreamState(stream, currentIndex, messageWithCount)
-
                     }
+                    /**
+                     * For a global state message, collect the index per stream,
+                     * but add the total count to the destination stats.
+                     */
                     is DestinationGlobalState -> {
                         val streamWithIndexAndCount = catalog.streams.map { stream ->
                             val manager = streamsManager.getManager(stream)

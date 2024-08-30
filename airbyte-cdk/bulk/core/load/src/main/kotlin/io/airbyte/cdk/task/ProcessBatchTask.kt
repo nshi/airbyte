@@ -8,7 +8,13 @@ import io.airbyte.cdk.write.StreamLoader
 import io.micronaut.context.annotation.Secondary
 import jakarta.inject.Singleton
 
-
+/**
+ * Wraps @[StreamLoader.processBatch] and handles the
+ * resulting batch, possibly calling back into the task
+ * or initiating close stream if processing is complete.
+ *
+ * TODO: Move handling batch results into the task launcher.
+ */
 class ProcessBatchTask(
     private val batchEnvelope: BatchEnvelope<*>,
     private val streamLoader: StreamLoader,

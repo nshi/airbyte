@@ -8,6 +8,11 @@ interface Deserializer<T> {
     fun deserialize(serialized: String): T
 }
 
+/**
+ * Converts the internal @[AirbyteMessage] to the internal @[DestinationMessage]
+ * Ideally, this would not use protocol messages at all, but rather a specialized
+ * deserializer for routing.
+ */
 @Singleton
 class DefaultDestinationMessageDeserializer(
     private val messageFactory: DestinationMessageFactory

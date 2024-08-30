@@ -19,6 +19,15 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 
+/**
+ * Wrapper for record messages published to the message
+ * queue, containing metadata like index and size.
+ *
+ * In a future where we deserialize only the info necessary
+ * for routing, this could include a dumb container for the
+ * serialized, and deserialization could be deferred until
+ * the spooled records were recovered from disk.
+ */
 sealed class DestinationRecordWrapped: Sized
 data class StreamRecordWrapped(
     val index: Long,
@@ -31,10 +40,22 @@ data class StreamCompleteWrapped(
     override val sizeBytes: Long = 0L
 }
 
+/**
+ * Message queue to which @[DestinationRecordWrapped] messages
+ * can be published on a @[DestinationStream] key.
+ *
+ * It maintains a map of @[QueueChannel]s by stream, and
+ * tracks the memory usage across all channels, blocking
+ * when the maximum is reached.
+ *
+ * This maximum is expected to be low, as the assumption
+ * is that data will be spooled to disk as quickly as
+ * possible.
+ */
 @Singleton
 class DestinationMessageQueue(
     catalog: DestinationCatalog,
-    private val config: WriteConfiguration,
+    config: WriteConfiguration,
     private val memoryManager: MemoryManager,
     private val queueChannelFactory: QueueChannelFactory<DestinationRecordWrapped>
 ): MessageQueue<DestinationStream, DestinationRecordWrapped> {

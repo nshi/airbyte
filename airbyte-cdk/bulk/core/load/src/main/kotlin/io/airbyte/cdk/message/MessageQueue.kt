@@ -1,8 +1,5 @@
 package io.airbyte.cdk.message
 
-
-import io.airbyte.cdk.command.WriteConfiguration
-import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.inject.Singleton
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.channels.Channel
@@ -18,27 +15,36 @@ interface MessageQueue<K, T: Sized> {
 }
 
 interface QueueChannel<T: Sized> {
-    val config: WriteConfiguration
+    suspend fun close()
+    suspend fun isClosed(): Boolean
+    suspend fun send(message: T)
+    suspend fun receive(): T
+}
+
+/**
+ * A channel that blocks when its parent queue has no
+ * available memory.
+ */
+interface BlockingQueueChannel<T: Sized>: QueueChannel<T> {
     val messageQueue: MessageQueue<*, T>
     val channel: Channel<T>
-    val closed: AtomicBoolean
 
-    suspend fun send(message: T) {
-        if (closed.get()) {
+    override suspend fun send(message: T) {
+        if (isClosed()) {
             throw IllegalStateException("Send to closed QueueChannel")
         }
-        val estimatedSize = message.sizeBytes * config.estimatedRecordMemoryOverheadRatio
-        messageQueue.acquireQueueBytesBlocking(estimatedSize.toLong())
+        val estimatedSize = message.sizeBytes
+        messageQueue.acquireQueueBytesBlocking(estimatedSize)
         channel.send(message)
     }
 
-    suspend fun receive(): T {
-        if (closed.get()) {
+    override suspend fun receive(): T {
+        if (isClosed()) {
             throw IllegalStateException("Receive from closed QueueChannel")
         }
         val message = channel.receive()
-        val estimatedSize = message.sizeBytes * config.estimatedRecordMemoryOverheadRatio
-        messageQueue.releaseQueueBytes(estimatedSize.toLong())
+        val estimatedSize = message.sizeBytes
+        messageQueue.releaseQueueBytes(estimatedSize)
         return message
     }
 }
@@ -47,23 +53,32 @@ interface QueueChannelFactory<T: Sized> {
     fun make(messageQueue: MessageQueue<*, T>): QueueChannel<T>
 }
 
+/**
+ * The default queue channel is just a dumb wrapper around
+ * an unlimited kotlin channel of wrapped records.
+ *
+ * Note: we wrap channel closedness in an atomic boolean
+ * because the @[Channel.isClosedForSend] and @[Channel.isClosedForReceive]
+ * apis are marked as delicate/experimental.
+ */
+class DefaultQueueChannel (
+    override val messageQueue: MessageQueue<*, DestinationRecordWrapped>
+) : BlockingQueueChannel<DestinationRecordWrapped> {
+    override val channel = Channel<DestinationRecordWrapped>(Channel.UNLIMITED)
+    private val closed = AtomicBoolean(false)
 
-class DefaultQueueChannel<T: Sized> (
-    override val config: WriteConfiguration,
-    override val messageQueue: MessageQueue<*, T>
-) : QueueChannel<T> {
-    override val channel = Channel<T>(Channel.UNLIMITED)
-    override val closed = AtomicBoolean(false)
+    override suspend fun close() {
+        if (closed.compareAndSet(false, true)) {
+            channel.close()
+        }
+    }
+
+    override suspend fun isClosed(): Boolean = closed.get()
 }
 
 @Singleton
-class DefaultQueueChannelFactory(
-    private val config: WriteConfiguration
-): QueueChannelFactory<DestinationRecordWrapped> {
+class DefaultQueueChannelFactory:
+    QueueChannelFactory<DestinationRecordWrapped> {
     override fun make(messageQueue: MessageQueue<*, DestinationRecordWrapped>): QueueChannel<DestinationRecordWrapped> =
-        DefaultQueueChannel(config, messageQueue)
+        DefaultQueueChannel(messageQueue)
 }
-
-
-
-

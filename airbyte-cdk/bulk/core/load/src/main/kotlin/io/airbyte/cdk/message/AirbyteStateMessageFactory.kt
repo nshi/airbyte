@@ -7,6 +7,10 @@ import io.airbyte.protocol.models.v0.AirbyteStreamState
 import io.airbyte.protocol.models.v0.StreamDescriptor
 import jakarta.inject.Singleton
 
+/**
+ * Converts the internal @[DestinationStateMessage] case class
+ * to the Protocol state messages required by @[io.airbyte.cdk.output.OutputConsumer]
+ */
 interface AirbyteStateMessageFactory {
     fun fromDestinationStateMessage(message: DestinationStateMessage): AirbyteStateMessage
 }

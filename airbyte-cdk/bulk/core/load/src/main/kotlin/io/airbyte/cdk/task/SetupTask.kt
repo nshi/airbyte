@@ -4,6 +4,12 @@ import io.airbyte.cdk.write.Destination
 import io.micronaut.context.annotation.Secondary
 import jakarta.inject.Singleton
 
+/**
+ * Wraps @[Destination.setup] and starts the open stream tasks.
+ *
+ * TODO: This should call something like "TaskLauncher.setupComplete"
+ *  and let it decide what to do next.
+ */
 class SetupTask(
     private val destination: Destination,
     private val taskLauncher: DestinationTaskLauncher

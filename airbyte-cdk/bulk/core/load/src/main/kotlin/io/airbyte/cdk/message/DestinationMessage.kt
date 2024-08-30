@@ -11,7 +11,9 @@ import io.airbyte.protocol.models.v0.AirbyteStreamStatusTraceMessage.AirbyteStre
 import jakarta.inject.Singleton
 
 /**
- * Dummy record for prototyping
+ * Internal representation of destination messages. These
+ * are intended to be specialized for usability. Data should
+ * be marshalled to these from frontline deserialized objects.
  */
 
 sealed class DestinationMessage

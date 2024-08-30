@@ -12,14 +12,23 @@ import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * Runnable input consumer.
+ */
 interface InputConsumer<T> {
-    val log: KLogger
+    suspend fun run()
+}
 
+/**
+ * Input consumer that deserializes and publishes to a queue.
+ */
+interface DeserializingInputStreamConsumer<T>: InputConsumer<T> {
+    val log: KLogger
     val inputStream: InputStream
     val deserializer: Deserializer<T>
     val messageQueue: MessageQueueWriter<T>
 
-    suspend fun run() = withContext(Dispatchers.IO) {
+    override suspend fun run() = withContext(Dispatchers.IO) {
         val log = KotlinLogging.logger {}
 
         log.info { "Starting consuming messages from the input stream" }
@@ -48,10 +57,13 @@ class DefaultInputConsumer(
     override val inputStream: InputStream,
     override val deserializer: Deserializer<DestinationMessage>,
     override val messageQueue: MessageQueueWriter<DestinationMessage>
-): InputConsumer<DestinationMessage> {
+): DeserializingInputStreamConsumer<DestinationMessage> {
     override val log = KotlinLogging.logger {}
 }
 
+/**
+ * Override to provide a custom input stream.
+ */
 @Factory
 class InputStreamFactory {
     @Singleton

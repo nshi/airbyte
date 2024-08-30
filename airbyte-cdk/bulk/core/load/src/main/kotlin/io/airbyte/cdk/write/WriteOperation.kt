@@ -9,6 +9,11 @@ import javax.inject.Singleton
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
+/**
+ * Write operation. Executed by the core framework when
+ * the operation is "write". Launches the core services
+ * and awaits completion.
+ */
 @Singleton
 @Requires(property = Operation.PROPERTY, value = "write")
 class WriteOperation(

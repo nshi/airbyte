@@ -7,7 +7,12 @@ import io.micronaut.context.annotation.Secondary
 import jakarta.inject.Singleton
 import java.util.concurrent.atomic.AtomicBoolean
 
-
+/**
+ * Wraps @[Destination.teardown] and stops the task launcher.
+ *
+ * TODO: Report teardown-complete and let the task launcher
+ *  decide what to do next.
+ */
 class TeardownTask(
     private val destination: Destination,
     private val streamsManager: StreamsManager,

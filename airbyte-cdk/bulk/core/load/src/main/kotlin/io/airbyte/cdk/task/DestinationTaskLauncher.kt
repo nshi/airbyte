@@ -2,8 +2,7 @@ package io.airbyte.cdk.task
 
 import io.airbyte.cdk.message.BatchEnvelope
 import io.airbyte.cdk.command.DestinationCatalog
-import io.airbyte.cdk.message.LocalStagedFile
-import io.airbyte.cdk.message.StagedRawMessagesFile
+import io.airbyte.cdk.message.SpooledRawMessagesLocalFile
 import io.airbyte.cdk.write.StreamLoader
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.micronaut.context.annotation.Factory
@@ -11,6 +10,14 @@ import io.micronaut.context.annotation.Secondary
 import jakarta.inject.Provider
 import jakarta.inject.Singleton
 
+/**
+ * Governs the task workflow for the entire destination life-cycle.
+ *
+ * The domain is "decide what to do next given the reported results
+ * of the individual task."
+ *
+ * TODO: Some of that logic still lives in the tasks. Migrate it here.
+ */
 
 class DestinationTaskLauncher(
     private val catalog: DestinationCatalog,
@@ -44,7 +51,7 @@ class DestinationTaskLauncher(
         taskRunner.enqueue(task)
     }
 
-    suspend fun startProcessRecordsTask(streamLoader: StreamLoader, fileEnvelope: BatchEnvelope<StagedRawMessagesFile>) {
+    suspend fun startProcessRecordsTask(streamLoader: StreamLoader, fileEnvelope: BatchEnvelope<SpooledRawMessagesLocalFile>) {
         log.info { "Starting process records task for ${streamLoader.stream}, file ${fileEnvelope.batch}" }
         taskRunner.enqueue(processRecordsTaskFactory.make(this, streamLoader, fileEnvelope))
     }

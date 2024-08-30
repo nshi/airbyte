@@ -6,7 +6,7 @@ import io.airbyte.cdk.command.WriteConfiguration
 import io.airbyte.cdk.message.BatchEnvelope
 import io.airbyte.cdk.message.DestinationRecordWrapped
 import io.airbyte.cdk.message.MessageQueueReader
-import io.airbyte.cdk.message.StagedRawMessagesFile
+import io.airbyte.cdk.message.SpooledRawMessagesLocalFile
 import io.airbyte.cdk.message.StreamCompleteWrapped
 import io.airbyte.cdk.message.StreamRecordWrapped
 import io.airbyte.cdk.write.StreamLoader
@@ -21,6 +21,19 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
+/**
+ * Reads records from the message queue and writes them to disk. This task
+ * is internal and does not interact with the task launcher.
+ *
+ * TODO: Use an injected interface for creating the filewriter (for testing,
+ *  custom overrides).
+ *
+ * TODO: Allow for the record batch size to be supplied per-stream. (Needed?)
+ *
+ * TODO: Migrate the batch processing logic to the task launcher. Also, this
+ *  batch should also be recorded, as it will allow the stream manager to
+ *  report exactly how many records have been spilled.
+ */
 class SpillToDiskTask(
     private val config: WriteConfiguration,
     private val queueReader: MessageQueueReader<DestinationStream, DestinationRecordWrapped>,
@@ -35,6 +48,7 @@ class SpillToDiskTask(
         val hasReadEndOfStream: Boolean = false,
     )
 
+    // Necessary because Guava's has no "empty" range
     private fun withIndex(range: Range<Long>?, index: Long): Range<Long> {
         return if (range == null) {
             Range.singleton(index)
@@ -48,10 +62,10 @@ class SpillToDiskTask(
     override suspend fun execute() {
         do {
             val (path, result) = withContext(Dispatchers.IO) {
+                /** Create a temporary file to write the records to */
                 val path = Files.createTempFile(config.firstStageTmpFilePrefix, ".jsonl")
                 val result = path.bufferedWriter(Charsets.UTF_8).use {
-                    /** Create a temporary file to write the records to */
-                    queueReader.readChunk(streamLoader.stream)
+                    queueReader.readChunk(streamLoader.stream, config.recordBatchSizeBytes)
                         .runningFold(ReadResult()) { (range, sizeBytes, _), wrapped ->
                             when (wrapped) {
                                 is StreamRecordWrapped -> {
@@ -83,7 +97,7 @@ class SpillToDiskTask(
                 return
             }
 
-            val wrapped = BatchEnvelope(StagedRawMessagesFile(path, sizeBytes), range)
+            val wrapped = BatchEnvelope(SpooledRawMessagesLocalFile(path, sizeBytes), range)
             launcher.startProcessRecordsTask(streamLoader, wrapped)
 
             yield()

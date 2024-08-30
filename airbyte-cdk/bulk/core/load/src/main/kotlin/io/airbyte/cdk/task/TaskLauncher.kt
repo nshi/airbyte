@@ -6,6 +6,10 @@ interface Task {
     suspend fun execute()
 }
 
+/**
+ * A TaskLauncher is responsible for starting and stopping the
+ * task workflow, and for managing transitions between tasks.
+ */
 interface TaskLauncher {
     val taskRunner: TaskRunner
 

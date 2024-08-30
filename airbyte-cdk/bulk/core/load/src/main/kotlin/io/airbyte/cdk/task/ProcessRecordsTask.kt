@@ -7,8 +7,7 @@ import io.airbyte.cdk.message.DestinationMessage
 import io.airbyte.cdk.message.DestinationRecord
 import io.airbyte.cdk.message.DestinationRecordMessage
 import io.airbyte.cdk.message.DestinationStreamComplete
-import io.airbyte.cdk.message.LocalStagedFile
-import io.airbyte.cdk.message.StagedRawMessagesFile
+import io.airbyte.cdk.message.SpooledRawMessagesLocalFile
 import io.airbyte.cdk.state.StreamManager
 import io.airbyte.cdk.state.StreamsManager
 import io.airbyte.cdk.write.StreamLoader
@@ -19,11 +18,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 
+/**
+ * Wraps @[StreamLoader.processRecords] and feeds it a lazy iterator
+ * over the last batch of spooled records. On completion it rewraps
+ * the processed batch in the old envelope and kicks off batch
+ * handling and/or close stream tasks.
+ *
+ * TODO: The batch handling logic here is identical to that in
+ *  @[ProcessBatchTask]. Both should be moved to the task launcher.
+ */
 class ProcessRecordsTask(
     private val streamLoader: StreamLoader,
     private val streamManager: StreamManager,
     private val taskLauncher: DestinationTaskLauncher,
-    private val fileEnvelope: BatchEnvelope<StagedRawMessagesFile>,
+    private val fileEnvelope: BatchEnvelope<SpooledRawMessagesLocalFile>,
     private val deserializer: Deserializer<DestinationMessage>,
 ): Task {
     override suspend fun execute() {
@@ -60,7 +68,7 @@ class ProcessRecordsTaskFactory(
 ) {
     fun make(taskLauncher: DestinationTaskLauncher,
              streamLoader: StreamLoader,
-             fileEnvelope: BatchEnvelope<StagedRawMessagesFile>,
+             fileEnvelope: BatchEnvelope<SpooledRawMessagesLocalFile>,
     ): ProcessRecordsTask {
         return ProcessRecordsTask(
             streamLoader,
