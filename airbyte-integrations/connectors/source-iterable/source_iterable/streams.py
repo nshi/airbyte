@@ -258,7 +258,7 @@ class IterableExportStream(IterableStream, CheckpointMixin, ABC):
 class IterableExportStreamRanged(IterableExportStream, ABC):
     """
     This class use RangeSliceGenerator class to break single request into
-    ranges with same (or less for final range) number of days. By default it 90
+    ranges with same (or less for final range) number of days. By default it 7
     days.
     """
 
